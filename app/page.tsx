@@ -512,7 +512,46 @@ export default function Home() {
                   </div>
                 )}
 
-                
+                {step === 5 && (
+                  <div className="space-y-6">
+                    <div className="w-full overflow-hidden rounded-md border-2 border-white/10 bg-white/5 shadow-lg">
+                      <img src="./comprovantes.jpeg" alt="Exemplo de Comprovante" className="w-full h-auto max-h-[300px] object-contain block mx-auto p-2" />
+                    </div>
+                    <span className="text-red-600 font-black text-6xl opacity-20 italic">05</span>
+                    <h2 className="text-4xl font-black italic uppercase leading-tight">FOTOS DOS COMPROVANTES</h2>
+                    <p className="text-white/40 text-xs uppercase font-bold italic tracking-wider">Juntar todos os comprovantes em uma única foto. Caso não tenha os recibos, inserir o extrato no próximo item.                                                                                                    Abaixo exemplo:</p>
+                    
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4">
+                        {previewUrls.map((url, index) => (
+                            <div key={index} className="relative aspect-square rounded-xl overflow-hidden border-2 border-blue-500/50 group">
+                                <img src={url} alt={`Comprovante ${index}`} className="w-full h-full object-cover" />
+                                <button 
+                                    onClick={() => removeFoto(index)}
+                                    className="absolute top-2 right-2 p-1.5 bg-red-600 rounded-full text-white opacity-0 group-hover:opacity-100 transition-opacity shadow-lg"
+                                >
+                                    <Trash2 size={16} />
+                                </button>
+                            </div>
+                        ))}
+                        <button 
+                            onClick={() => fotoInputRef.current?.click()}
+                            className="aspect-square border-4 border-dashed border-white/10 rounded-xl flex flex-col items-center justify-center hover:bg-white/5 hover:border-blue-500 transition-all gap-2"
+                        >
+                            <Plus className="text-blue-500" size={32} />
+                            <span className="text-[10px] font-black uppercase">Adicionar Foto</span>
+                        </button>
+                    </div>
+
+                    <input 
+                      ref={fotoInputRef} 
+                      type="file" 
+                      accept="image/*" 
+                      multiple
+                      className="hidden" 
+                      onChange={handleFileChange} 
+                    />
+                  </div>
+                )}
 
                 {step === 6 && (
                   <div className="space-y-6">
