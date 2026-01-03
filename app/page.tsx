@@ -70,13 +70,17 @@ export default function Home() {
     setFormData({ ...formData, valor: result });
   };
 
-  const handleAdminLogin = () => {
-    if (adminAuth.user === 'rivilog@adm' && adminAuth.pass === '33529710') {
-      router.push('/admin');
-    } else {
-      alert('Credenciais inválidas');
-    }
-  };
+ const handleAdminLogin = () => {
+  if (adminAuth.user === 'rivilog@adm' && adminAuth.pass === '33529710') {
+    // 1. Cria a chave de acesso no navegador
+    sessionStorage.setItem('rivilog_admin_access', 'granted');
+    
+    // 2. Redireciona para o painel
+    router.push('/admin');
+  } else {
+    alert('Credenciais inválidas');
+  }
+};
 
   const handleNextStep = () => {
     if (step === 2) {

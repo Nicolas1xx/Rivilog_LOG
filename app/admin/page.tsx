@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
+import { useRouter } from 'next/navigation'; // Adicionado para o redirecionamento
 import * as XLSX from 'xlsx'; 
 import { 
-  FileText, Calendar, Phone, Mail, Eye, ArrowLeft, Search, Trash2, Filter, X, Hash, Download
+  FileText, Calendar, Phone, Mail, Eye, ArrowLeft, Search, Trash2, Filter, X, Hash, Download, Lock
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -20,6 +21,8 @@ const RivilogLogo = ({ className = "w-48 h-16" }) => (
 );
 
 export default function AdminPanel() {
+  const router = useRouter();
+  const [authorized, setAuthorized] = useState(false); // Estado de segurança
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -28,9 +31,26 @@ export default function AdminPanel() {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
 
+  // --- LOGICA DE PROTEÇÃO ---
   useEffect(() => {
-    fetchData();
-  }, []);
+    const checkAuth = () => {
+      const isAuth = sessionStorage.getItem('rivilog_admin_access');
+      if (isAuth !== 'granted') {
+        router.replace('/');
+      } else {
+        setAuthorized(true);
+        fetchData();
+      }
+    };
+    checkAuth();
+  }, [router]);
+
+  // Função para deslogar (opcional, mas recomendada)
+  const handleLogout = () => {
+    sessionStorage.removeItem('rivilog_admin_access');
+    router.replace('/');
+  };
+  // ---------------------------
 
   async function fetchData() {
     setLoading(true);
@@ -49,14 +69,12 @@ export default function AdminPanel() {
     }
   }
 
-  // FUNÇÃO PARA EXPORTAR PARA EXCEL ESTILIZADA
   const handleExportExcel = () => {
     if (filteredData.length === 0) {
       alert("Nenhum dado encontrado para exportar.");
       return;
     }
 
-    // Organização e formatação para o financeiro
     const excelData = filteredData.map(item => ({
       'DATA VIAGEM': new Date(item.data_viagem + 'T00:00:00').toLocaleDateString('pt-BR'),
       'MOTORISTA': item.nome_motorista?.toUpperCase() || 'N/A',
@@ -73,7 +91,6 @@ export default function AdminPanel() {
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Lançamentos Rivilog");
 
-    // Configura larguras das colunas
     worksheet['!cols'] = [
       { wch: 15 }, { wch: 30 }, { wch: 12 }, { wch: 20 }, 
       { wch: 15 }, { wch: 20 }, { wch: 20 }, { wch: 30 }, { wch: 20 }
@@ -127,6 +144,9 @@ export default function AdminPanel() {
 
   const totalValor = filteredData.reduce((acc, curr) => acc + (curr.valor || 0), 0);
 
+  // Se não estiver autorizado, retorna vazio para evitar "piscada" de conteúdo
+  if (!authorized) return <div className="min-h-screen bg-[#000b1a]" />;
+
   return (
     <main className="min-h-screen bg-[#000b1a] text-white p-4 md:p-8 relative overflow-hidden font-sans">
       
@@ -138,9 +158,9 @@ export default function AdminPanel() {
         
         <div className="flex flex-col md:flex-row justify-between items-end mb-10 gap-6">
           <div className="flex items-center gap-6">
-            <Link href="/" className="p-3 bg-white/5 rounded-full hover:bg-blue-600 transition-all group">
-              <ArrowLeft className="w-6 h-6 group-hover:scale-110" />
-            </Link>
+            <button onClick={handleLogout} className="p-3 bg-red-600/10 border border-red-600/20 rounded-full hover:bg-red-600 transition-all group text-red-500 hover:text-white" title="Sair do Painel">
+              <Lock className="w-6 h-6 group-hover:scale-110" />
+            </button>
             <RivilogLogo />
           </div>
 
