@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { 
   ChevronRight, ChevronLeft, CheckCircle2, FileText, 
   Wallet, Camera, Phone, Mail, FileUp, Loader2, AlertTriangle,
-  Lock, X, ShieldAlert, Clock, Calendar, Copy
+  Lock, X, ShieldAlert, Clock, Calendar, Copy, Trash2, Plus
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
@@ -30,10 +30,13 @@ export default function Home() {
   const [showLogin, setShowLogin] = useState(false);
   const [adminAuth, setAdminAuth] = useState({ user: '', pass: '' });
 
+  // Estado para gerenciar múltiplas fotos
+  const [previewUrls, setPreviewUrls] = useState<string[]>([]);
+  const [fotoFiles, setFotoFiles] = useState<File[]>([]);
+
   const [formData, setFormData] = useState({
     nome: '', data: '', placa: '', operacao: '', valor: '', 
     telefone: '', email: '',
-    foto_comprovante: null as File | null,
     extrato_pdf: null as File | null
   });
 
@@ -61,28 +64,65 @@ export default function Home() {
     setFormData({ ...formData, placa: value });
   };
 
+  // AJUSTE DAS CASAS DECIMAIS: Formata enquanto digita (Ex: 150 vira 1,50)
   const handleCurrencyMask = (e: React.ChangeEvent<HTMLInputElement>) => {
-    let value = e.target.value.replace(/\D/g, "");
+    let value = e.target.value.replace(/\D/g, ""); 
+    
+    if (!value) {
+      setFormData({ ...formData, valor: "" });
+      return;
+    }
+
     const options = { minimumFractionDigits: 2 };
-    const result = new Intl.NumberFormat("pt-BR", options).format(
+    const result = new Intl.NumberFormat('pt-BR', options).format(
       parseFloat(value) / 100
     );
+
     setFormData({ ...formData, valor: result });
   };
 
- const handleAdminLogin = () => {
-  if (adminAuth.user === 'rivilog@adm' && adminAuth.pass === '33529710') {
-    // 1. Cria a chave de acesso no navegador
-    sessionStorage.setItem('rivilog_admin_access', 'granted');
-    
-    // 2. Redireciona para o painel
-    router.push('/admin');
-  } else {
-    alert('Credenciais inválidas');
-  }
-};
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      const files = Array.from(e.target.files);
+      setFotoFiles(prev => [...prev, ...files]);
+      
+      const urls = files.map(file => URL.createObjectURL(file));
+      setPreviewUrls(prev => [...prev, ...urls]);
+    }
+  };
+
+  const removeFoto = (index: number) => {
+    setFotoFiles(prev => prev.filter((_, i) => i !== index));
+    setPreviewUrls(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleAdminLogin = () => {
+    if (adminAuth.user === 'rivilog@adm' && adminAuth.pass === '33529710') {
+      sessionStorage.setItem('rivilog_admin_access', 'granted');
+      router.push('/admin');
+    } else {
+      alert('Credenciais inválidas');
+    }
+  };
 
   const handleNextStep = () => {
+    // PASSO 1: TRAVA DE 24 HORAS
+    if (step === 1) {
+      if (!formData.data) {
+        alert("ERRO: Selecione a data da viagem.");
+        return;
+      }
+      const dataSelecionada = new Date(formData.data + 'T00:00:00');
+      const hoje = new Date();
+      hoje.setHours(0, 0, 0, 0);
+
+      if (dataSelecionada < hoje) {
+        alert("BLOQUEADO: Não são aceitos comprovantes de dias anteriores.");
+        return;
+      }
+    }
+
+    // PASSO 2: PLACA OBRIGATÓRIA
     if (step === 2) {
       if (!formData.placa || formData.placa.length < 7) {
         alert("ERRO: A placa é obrigatória e deve ter 7 caracteres.");
@@ -90,13 +130,15 @@ export default function Home() {
       }
     }
 
+    // PASSO 4: VALOR OBRIGATÓRIO (Ajustado para a nova máscara)
     if (step === 4) {
-      if (!formData.valor || formData.valor.endsWith(",00") || formData.valor === "0,00") {
-        alert("FALHA: É obrigatório informar os centavos corretos.");
+      if (!formData.valor || formData.valor === "" || formData.valor === "0,00") {
+        alert("ERRO: O valor do pedágio é obrigatório.");
         return;
       }
     }
 
+    // PASSO 7: CONTATOS OBRIGATÓRIOS
     if (step === 7) {
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (formData.telefone.length < 14) {
@@ -109,29 +151,43 @@ export default function Home() {
       }
     }
 
+    // PASSO 8: NOME OBRIGATÓRIO
+    if (step === 8) {
+        if (!formData.nome || formData.nome.length < 3) {
+            alert("ERRO: Informe o nome completo do responsável.");
+            return;
+        }
+    }
+
     setStep(step + 1);
   };
 
+  
+
   const handleSubmit = async () => {
-    if (!formData.nome) { alert("Informe seu nome."); return; }
     setLoading(true);
     const novoProtocolo = gerarProtocolo();
     
     try {
-      let fotoUrl = null;
-      let pdfUrl = null;
+      const fotoUrls = [];
 
-      if (formData.foto_comprovante) {
-        const fileName = `foto-${Date.now()}-${formData.placa}.jpg`;
-        await supabase.storage.from('comprovantes').upload(fileName, formData.foto_comprovante);
-        fotoUrl = supabase.storage.from('comprovantes').getPublicUrl(fileName).data.publicUrl;
+      // Upload de Múltiplas Fotos
+      for (const file of fotoFiles) {
+        const fileName = `foto-${Date.now()}-${Math.random().toString(36).substring(7)}.jpg`;
+        await supabase.storage.from('comprovantes').upload(fileName, file);
+        const url = supabase.storage.from('comprovantes').getPublicUrl(fileName).data.publicUrl;
+        fotoUrls.push(url);
       }
 
+      let pdfUrl = null;
       if (formData.extrato_pdf) {
         const fileName = `pdf-${Date.now()}-${formData.placa}.pdf`;
         await supabase.storage.from('comprovantes').upload(fileName, formData.extrato_pdf);
         pdfUrl = supabase.storage.from('comprovantes').getPublicUrl(fileName).data.publicUrl;
       }
+
+      // Converte o valor "1.250,50" para o número 1250.50
+      const valorNumerico = parseFloat(formData.valor.replace(/\./g, '').replace(',', '.')) || 0;
 
       const { error: dbErr } = await supabase.from('pedagios').insert([{
         protocolo: novoProtocolo,
@@ -139,16 +195,15 @@ export default function Home() {
         data_viagem: formData.data,
         placa: formData.placa.toUpperCase(),
         operacao: formData.operacao,
-        valor: parseFloat(formData.valor.replace('.', '').replace(',', '.')) || 0,
+        valor: valorNumerico,
         telefone: formData.telefone,
         email: formData.email,
-        url_comprovante: fotoUrl,
+        url_comprovante: fotoUrls[0] || null, 
         url_extrato: pdfUrl
       }]);
 
       if (dbErr) throw dbErr;
 
-      // --- INÍCIO DO BLOCO DE ENVIO DE E-MAIL ---
       try {
         await fetch('/api/send', {
           method: 'POST',
@@ -161,10 +216,8 @@ export default function Home() {
           }),
         });
       } catch (emailErr) {
-        // Apenas logamos o erro para não travar a tela de sucesso do motorista
         console.error("Falha ao disparar e-mail:", emailErr);
       }
-      // --- FIM DO BLOCO DE ENVIO DE E-MAIL ---
 
       setProtocoloGerado(novoProtocolo);
       setSuccess(true);
@@ -177,7 +230,6 @@ export default function Home() {
 
   if (success) return (
     <div className="min-h-screen bg-[#000b1a] flex items-center justify-center p-6 text-white relative">
-       {/* Logo centralizada no fundo na tela de sucesso também */}
        <div className="fixed inset-0 overflow-hidden pointer-events-none flex items-center justify-center">
         <RivilogLogo className="w-[80%] h-auto opacity-[0.03] grayscale" />
       </div>
@@ -188,7 +240,6 @@ export default function Home() {
         </div>
         <h2 className="text-5xl font-black mb-2 uppercase italic">Protocolado!</h2>
         
-        {/* EXIBIÇÃO DO PROTOCOLO */}
         <div className="mb-8 mt-4 bg-white/5 border border-white/10 rounded-2xl p-6 backdrop-blur-md">
           <p className="text-[10px] font-black text-blue-500 uppercase tracking-[0.3em] mb-2">Número do Protocolo</p>
           <div className="flex items-center justify-center gap-4">
@@ -214,7 +265,6 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-[#000d1a] text-white selection:bg-blue-500 relative overflow-hidden font-sans">
       
-      {/* Background Decor & Watermark Logo */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none flex items-center justify-center">
         <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-600/10 blur-[120px] rounded-full"></div>
         <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-blue-900/20 blur-[120px] rounded-full"></div>
@@ -268,7 +318,6 @@ export default function Home() {
           {step === 0 ? (
             <div className="animate-in fade-in zoom-in-95 duration-700">
               
-              {/* ATENÇÃO MÁXIMA BANNER */}
               <div className="mb-10 relative group">
                 <div className="absolute -inset-1 bg-gradient-to-r from-red-600 to-orange-600 rounded-3xl blur opacity-25 group-hover:opacity-50 transition duration-1000 group-hover:duration-200"></div>
                 <div className="relative bg-[#0a0505] border-2 border-red-600/50 rounded-3xl p-6 flex items-center justify-center gap-6 overflow-hidden">
@@ -285,10 +334,7 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* GRID DE INFORMAÇÕES ORGANIZADAS */}
               <div className="grid md:grid-cols-2 gap-8 mb-12">
-                
-                {/* REGRAS */}
                 <div className="bg-white/[0.03] backdrop-blur-md border border-white/10 p-8 rounded-[40px] hover:bg-white/[0.05] transition-colors">
                   <div className="flex items-center gap-4 mb-8">
                     <div className="bg-blue-600/20 p-3 rounded-2xl">
@@ -299,7 +345,7 @@ export default function Home() {
                   
                   <div className="space-y-5">
                     {[
-                      { icon: <Calendar size={18}/>, text: "Data correta da rota (Dia/Mês/Ano)" },
+                      { icon: <Calendar size={18}/>, text: "Data correta da rota (APENAS O DIA ATUAL)" },
                       { icon: <FileUp size={18}/>, text: "Placa no Padrão Mercosul (7 caracteres)" },
                       { icon: <CheckCircle2 size={18}/>, text: "Comprovantes 100% Legíveis" }
                     ].map((item, i) => (
@@ -311,7 +357,6 @@ export default function Home() {
                   </div>
                 </div>
 
-                {/* PAGAMENTOS */}
                 <div className="bg-white/[0.03] backdrop-blur-md border border-white/10 p-8 rounded-[40px] hover:bg-white/[0.05] transition-colors">
                   <div className="flex items-center gap-4 mb-8">
                     <div className="bg-blue-600/20 p-3 rounded-2xl">
@@ -350,13 +395,12 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* BOTÃO PRINCIPAL */}
               <button 
                 onClick={() => setStep(1)} 
                 className="group relative w-full overflow-hidden rounded-[35px] bg-white p-1 transition-all hover:scale-[1.01] active:scale-[0.98]"
               >
-                <div className="relative flex items-center justify-center gap-4 rounded-[30px] bg-white px-8 py-8 transition-all group-hover:bg-blue-600">
-                  <span className="text-2xl font-black uppercase italic tracking-[0.2em] text-black transition-all group-hover:text-white">
+                <div className="relative flex items-center justify-center gap-4 rounded-[30px] bg-yellow-400 px-8 py-8 transition-all group-hover:bg-yellow-500">
+                <span className="text-2xl font-black uppercase italic tracking-[0.2em] text-black transition-all">
                     Iniciar Protocolo de Envio
                   </span>
                   <ChevronRight size={32} className="text-blue-600 transition-all group-hover:translate-x-2 group-hover:text-white" />
@@ -379,7 +423,7 @@ export default function Home() {
                   <div className="space-y-6">
                     <span className="text-red-600 font-black text-6xl opacity-20 italic">01</span>
                     <h2 className="text-4xl font-black italic uppercase">Data da Viagem</h2>
-                    <p className="text-white/40 text-xs uppercase font-bold italic tracking-wider">Data da realização rota: DIA / MÊS / ANO</p>
+                    <p className="text-white/40 text-xs uppercase font-bold italic tracking-wider">Atenção: Apenas envios do dia atual são permitidos.</p>
                     <input autoFocus type="date" className="w-full bg-transparent border-b-4 border-white/10 py-6 text-4xl font-bold focus:border-blue-500 outline-none transition" onChange={e => setFormData({...formData, data: e.target.value})} />
                   </div>
                 )}
@@ -411,10 +455,6 @@ export default function Home() {
                         />
                       </div>
                     </div>
-
-                    {formData.placa.length > 0 && formData.placa.length < 7 && (
-                      <p className="text-red-500 text-[10px] font-black uppercase italic text-center">A placa deve conter 7 dígitos.</p>
-                    )}
                   </div>
                 )}
 
@@ -451,11 +491,12 @@ export default function Home() {
                   </div>
                 )}
 
+                {/* PASSO 4 - VALOR DO PEDAGIO COM MÁSCARA DE CASAS DECIMAIS */}
                 {step === 4 && (
                   <div className="space-y-6">
                     <span className="text-red-600 font-black text-6xl opacity-20 italic">04</span>
                     <h2 className="text-4xl font-black italic uppercase">VALOR DO PEDAGIO</h2>
-                    <p className="text-white/40 text-xs uppercase font-bold italic tracking-wider">Valor da Ida e Volta - Centavos Obrigatórios</p>
+                    <p className="text-white/40 text-xs uppercase font-bold italic tracking-wider">Digite o valor total (A máscara adiciona vírgula automaticamente)</p>
                     <div className="flex items-center border-b-4 border-white/10 focus-within:border-blue-500 transition">
                       <span className="text-3xl font-bold mr-6 opacity-30 text-white">R$</span>
                       <input 
@@ -468,35 +509,10 @@ export default function Home() {
                         onChange={handleCurrencyMask} 
                       />
                     </div>
-                    <p className="text-red-500 text-[10px] font-black uppercase italic">Não utilize vírgula ou ponto. Digite apenas os números.</p>
                   </div>
                 )}
 
-                {step === 5 && (
-                  <div className="space-y-6">
-                    <div className="w-full overflow-hidden rounded-md border-2 border-white/10 bg-white/5 shadow-lg">
-                      <img src="./comprovantes.jpeg" alt="Exemplo de Comprovante" className="w-full h-auto max-h-[300px] object-contain block mx-auto p-2" />
-                    </div>
-                    <span className="text-red-600 font-black text-6xl opacity-20 italic">05</span>
-                    <h2 className="text-4xl font-black italic uppercase leading-tight">INSIRA FOTO DO COMPROVANTE DE PAGAMENTO</h2>
-                    <p className="text-white/40 text-xs uppercase font-bold italic tracking-wider">Juntar todos os comprovantes em uma única foto. Caso não tenha os recibos, inserir o extrato no próximo item.</p>
-                    <input 
-                      ref={fotoInputRef} 
-                      type="file" 
-                      accept="image/*" 
-                      capture="environment" 
-                      className="hidden" 
-                      onChange={e => setFormData({...formData, foto_comprovante: e.target.files ? e.target.files[0] : null})} 
-                    />
-                    <div 
-                      onClick={() => fotoInputRef.current?.click()} 
-                      className={`w-full h-64 border-4 border-dashed rounded-xl flex flex-col items-center justify-center cursor-pointer transition-all ${formData.foto_comprovante ? 'border-blue-500 bg-blue-500/10' : 'border-white/5 hover:bg-white/10'}`}
-                    >
-                      {formData.foto_comprovante ? <CheckCircle2 className="w-16 h-16 text-blue-500" /> : <Camera className="w-16 h-16 opacity-10" />}
-                      <p className="mt-6 text-xs font-black uppercase tracking-[0.3em]">{formData.foto_comprovante ? 'Foto Carregada' : 'Capturar Comprovante'}</p>
-                    </div>
-                  </div>
-                )}
+                
 
                 {step === 6 && (
                   <div className="space-y-6">
@@ -505,7 +521,7 @@ export default function Home() {
                     </div>
                     <span className="text-red-600 font-black text-6xl opacity-20 italic">06</span>
                     <h2 className="text-4xl font-black italic uppercase leading-tight">ANEXAR EXTRATO EM PDF</h2>
-                    <p className="text-white/40 text-xs uppercase font-bold italic tracking-wider">As informações devem corresponder com as informações mencionadas na pergunta anterior.</p>
+                    <p className="text-white/40 text-xs uppercase font-bold italic tracking-wider">As informações devem corresponder com as informações mencionadas na pergunta anterior.                                                                                                                                  Abaixo exemplo:</p>
                     <input 
                       ref={pdfInputRef} 
                       type="file" 
@@ -524,38 +540,36 @@ export default function Home() {
                 )}
 
                 {step === 7 && (
-  <div className="space-y-10">
-    <div className="space-y-6">
-      <span className="text-red-600 font-black text-6xl opacity-20 italic">07</span>
-      <h2 className="text-4xl font-black italic uppercase">CONTATO DO RESPONSAVEL</h2>
-      <p className="text-blue-500 text-[10px] font-black uppercase tracking-widest italic">Telefone e E-mail Obrigatórios</p>
-    </div>
-    <div className="space-y-8">
-      <div className="flex items-center gap-6 border-b-2 border-white/10 focus-within:border-blue-500 transition">
-        <Phone className="w-6 h-6 text-blue-500" />
-        <input 
-          type="tel" 
-          placeholder="(00) 00000-0000" 
-          value={formData.telefone}
-          className="w-full bg-transparent py-6 text-2xl font-bold outline-none" 
-          onChange={handleTelefoneMask} 
-        />
-      </div>
-      <div className="flex items-center gap-6 border-b-2 border-white/10 focus-within:border-blue-500 transition">
-        <Mail className="w-6 h-6 text-blue-500" />
-        <input 
-          type="email" 
-          placeholder="exemplo@email.com" 
-          value={formData.email}
-          /* Removemos 'uppercase' e adicionamos 'lowercase' para visual */
-          className="w-full bg-transparent py-6 text-2xl font-bold outline-none lowercase" 
-          /* O .toLowerCase() garante que o dado seja salvo minúsculo no banco e no envio do email */
-          onChange={e => setFormData({...formData, email: e.target.value.toLowerCase()})} 
-        />
-      </div>
-    </div>
-  </div>
-)}
+                  <div className="space-y-10">
+                    <div className="space-y-6">
+                      <span className="text-red-600 font-black text-6xl opacity-20 italic">07</span>
+                      <h2 className="text-4xl font-black italic uppercase">CONTATO DO RESPONSAVEL</h2>
+                      <p className="text-blue-500 text-[10px] font-black uppercase tracking-widest italic">Telefone e E-mail Obrigatórios</p>
+                    </div>
+                    <div className="space-y-8">
+                      <div className="flex items-center gap-6 border-b-2 border-white/10 focus-within:border-blue-500 transition">
+                        <Phone className="w-6 h-6 text-blue-500" />
+                        <input 
+                          type="tel" 
+                          placeholder="(00) 00000-0000" 
+                          value={formData.telefone}
+                          className="w-full bg-transparent py-6 text-2xl font-bold outline-none" 
+                          onChange={handleTelefoneMask} 
+                        />
+                      </div>
+                      <div className="flex items-center gap-6 border-b-2 border-white/10 focus-within:border-blue-500 transition">
+                        <Mail className="w-6 h-6 text-blue-500" />
+                        <input 
+                          type="email" 
+                          placeholder="exemplo@email.com" 
+                          value={formData.email}
+                          className="w-full bg-transparent py-6 text-2xl font-bold outline-none lowercase" 
+                          onChange={e => setFormData({...formData, email: e.target.value.toLowerCase()})} 
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {step === 8 && (
                   <div className="space-y-6">
@@ -579,39 +593,68 @@ export default function Home() {
                         <p className="font-bold uppercase text-blue-400">{formData.nome}</p>
                         
                         <p className="text-white/40 uppercase font-black">Data:</p>
-                        <p className="font-bold">{formData.data.split('-').reverse().join('/')}</p>
+                        <p className="font-bold">{formData.data}</p>
                         
                         <p className="text-white/40 uppercase font-black">Placa:</p>
-                        <p className="font-bold text-blue-400">{formData.placa}</p>
-                        
+                        <p className="font-bold uppercase">{formData.placa}</p>
+
                         <p className="text-white/40 uppercase font-black">Operação:</p>
-                        <p className="font-bold uppercase">{formData.operacao}</p>
-                        
-                        <p className="text-white/40 uppercase font-black">Valor Total:</p>
-                        <p className="font-bold text-green-400 text-xl">R$ {formData.valor}</p>
+                        <p className="font-bold text-blue-400">{formData.operacao}</p>
+
+                        <p className="text-white/40 uppercase font-black">Valor:</p>
+                        <p className="font-bold text-xl text-green-400">R$ {formData.valor}</p>
                       </div>
-                      
-                      <div className="pt-4 border-t border-white/10 flex flex-wrap gap-4">
-                        {formData.foto_comprovante && <span className="bg-blue-600/20 text-blue-400 text-[10px] px-3 py-1 rounded-full font-bold uppercase tracking-widest border border-blue-600/30">Foto Anexada</span>}
-                        {formData.extrato_pdf && <span className="bg-blue-600/20 text-blue-400 text-[10px] px-3 py-1 rounded-full font-bold uppercase tracking-widest border border-blue-600/30">PDF Anexado</span>}
+                    </div>
+
+                    <div className="flex gap-4">
+                      <div className={`flex-1 p-4 rounded-2xl border ${fotoFiles.length > 0 ? 'border-green-500/30 bg-green-500/5' : 'border-white/5 bg-white/5 opacity-50'}`}>
+                        <Camera className={fotoFiles.length > 0 ? 'text-green-500' : 'text-white/20'} />
+                        <p className="text-[10px] mt-2 font-black uppercase">{fotoFiles.length} Fotos</p>
+                      </div>
+                      <div className={`flex-1 p-4 rounded-2xl border ${formData.extrato_pdf ? 'border-green-500/30 bg-green-500/5' : 'border-white/5 bg-white/5 opacity-50'}`}>
+                        <FileText className={formData.extrato_pdf ? 'text-green-500' : 'text-white/20'} />
+                        <p className="text-[10px] mt-2 font-black uppercase">{formData.extrato_pdf ? 'PDF Anexado' : 'Sem PDF'}</p>
                       </div>
                     </div>
                   </div>
                 )}
 
-                {step !== 3 && (
-                  <button 
-                    onClick={step === 9 ? handleSubmit : handleNextStep} 
-                    disabled={loading}
-                    className="w-full bg-blue-600 text-white py-8 rounded-[25px] font-black text-2xl hover:bg-blue-500 transition-all shadow-2xl disabled:opacity-50 uppercase tracking-[0.3em] flex items-center justify-center gap-4"
-                  >
-                    {loading ? (
-                      <><Loader2 className="animate-spin" size={30} /> Enviando...</>
-                    ) : (
-                      step === 9 ? 'Confirmar e Enviar' : 'Próxima Etapa'
-                    )}
-                  </button>
-                )}
+                <div className="pt-10 flex gap-4">
+                  {step > 1 && (
+                    <button 
+                        onClick={() => setStep(step - 1)}
+                        className="p-6 rounded-2xl bg-white/5 hover:bg-white/10 transition border border-white/5"
+                    >
+                        <ChevronLeft size={32} />
+                    </button>
+                  )}
+                  
+                  {step === 9 ? (
+                    <button 
+                      onClick={handleSubmit} 
+                      disabled={loading}
+                      className="flex-1 bg-blue-600 hover:bg-blue-500 py-6 rounded-2xl flex items-center justify-center gap-3 transition-all active:scale-95 shadow-[0_0_40px_rgba(59,130,246,0.3)] disabled:opacity-50"
+                    >
+                      {loading ? (
+                        <Loader2 className="animate-spin" size={28} />
+                      ) : (
+                        <>
+                          <span className="text-xl font-black italic uppercase tracking-widest">Finalizar Envio</span>
+                          <CheckCircle2 size={28} />
+                        </>
+                      )}
+                    </button>
+                  ) : (
+                    <button 
+                      onClick={handleNextStep}
+                      className="flex-1 bg-white text-black hover:bg-blue-500 hover:text-white py-6 rounded-2xl flex items-center justify-center gap-3 transition-all active:scale-95"
+                    >
+                      <span className="text-xl font-black italic uppercase tracking-widest">Próximo</span>
+                      <ChevronRight size={28} />
+                    </button>
+                  )}
+                </div>
+
               </div>
             </div>
           )}

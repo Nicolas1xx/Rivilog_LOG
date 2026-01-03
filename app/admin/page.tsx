@@ -2,12 +2,11 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { useRouter } from 'next/navigation'; // Adicionado para o redirecionamento
+import { useRouter } from 'next/navigation';
 import * as XLSX from 'xlsx'; 
 import { 
-  FileText, Calendar, Phone, Mail, Eye, ArrowLeft, Search, Trash2, Filter, X, Hash, Download, Lock
+  FileText, Calendar, Phone, Mail, Eye, ArrowLeft, Search, Trash2, Filter, X, Hash, Download, Lock, Image as ImageIcon, ChevronLeft, ChevronRight
 } from 'lucide-react';
-import Link from 'next/link';
 
 const RivilogLogo = ({ className = "w-48 h-16" }) => (
   <svg viewBox="0 0 300 100" className={className} fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -22,16 +21,18 @@ const RivilogLogo = ({ className = "w-48 h-16" }) => (
 
 export default function AdminPanel() {
   const router = useRouter();
-  const [authorized, setAuthorized] = useState(false); // Estado de segurança
+  const [authorized, setAuthorized] = useState(false);
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterOperacao, setFilterOperacao] = useState('TODAS');
-  
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
 
-  // --- LOGICA DE PROTEÇÃO ---
+  // Estados para o Modal de Fotos
+  const [activePhotos, setActivePhotos] = useState<string[] | null>(null);
+  const [photoIndex, setPhotoIndex] = useState(0);
+
   useEffect(() => {
     const checkAuth = () => {
       const isAuth = sessionStorage.getItem('rivilog_admin_access');
@@ -44,13 +45,6 @@ export default function AdminPanel() {
     };
     checkAuth();
   }, [router]);
-
-  // Função para deslogar (opcional, mas recomendada)
-  const handleLogout = () => {
-    sessionStorage.removeItem('rivilog_admin_access');
-    router.replace('/');
-  };
-  // ---------------------------
 
   async function fetchData() {
     setLoading(true);
@@ -84,43 +78,52 @@ export default function AdminPanel() {
       'PROTOCOLO': item.protocolo || 'N/A',
       'CONTATO': item.telefone || 'N/A',
       'E-MAIL': item.email?.toLowerCase() || 'N/A',
+      'FOTOS': item.urls_multiplas ? item.urls_multiplas.length : (item.url_comprovante ? 1 : 0),
       'DATA CADASTRO': new Date(item.created_at).toLocaleString('pt-BR')
     }));
 
     const worksheet = XLSX.utils.json_to_sheet(excelData);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Lançamentos Rivilog");
-
-    worksheet['!cols'] = [
-      { wch: 15 }, { wch: 30 }, { wch: 12 }, { wch: 20 }, 
-      { wch: 15 }, { wch: 20 }, { wch: 20 }, { wch: 30 }, { wch: 20 }
-    ];
-
-    const fileName = `RIVILOG_FINANCEIRO_${new Date().toISOString().split('T')[0]}.xlsx`;
-    XLSX.writeFile(workbook, fileName);
+    XLSX.writeFile(workbook, `RIVILOG_FINANCEIRO_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
   async function handleDelete(item: any) {
     const confirmacao = window.confirm(
-      `CONFIRMAÇÃO DE EXCLUSÃO: O protocolo ${item.protocolo} será apagado permanentemente. Deseja continuar?`
+      `CONFIRMAÇÃO DE EXCLUSÃO: O protocolo ${item.protocolo} e todas as fotos serão apagados. Deseja continuar?`
     );
     if (!confirmacao) return;
 
     try {
+      // 1. Deletar registro do banco
       const { error: dbError } = await supabase.from('pedagios').delete().eq('id', item.id);
       if (dbError) throw dbError;
 
+      // 2. Limpar arquivos do Storage
+      const filesToDelete: string[] = [];
+      if (item.urls_multiplas && item.urls_multiplas.length > 0) {
+        item.urls_multiplas.forEach((url: string) => {
+          const name = url.split('/').pop();
+          if (name) filesToDelete.push(name);
+        });
+      }
+
       if (item.url_extrato) {
         const fileName = item.url_extrato.split('/').pop();
-        await supabase.storage.from('comprovantes').remove([fileName]);
+        if (fileName) filesToDelete.push(fileName);
       }
+
       if (item.url_comprovante) {
         const fileName = item.url_comprovante.split('/').pop();
-        await supabase.storage.from('comprovantes').remove([fileName]);
+        if (fileName) filesToDelete.push(fileName);
+      }
+
+      if (filesToDelete.length > 0) {
+        await supabase.storage.from('comprovantes').remove(filesToDelete);
       }
 
       setData(prev => prev.filter(i => i.id !== item.id));
-      alert("Registro excluído com sucesso!");
+      alert("Registro e arquivos excluídos!");
     } catch (err) {
       alert("Erro ao excluir.");
     }
@@ -144,12 +147,60 @@ export default function AdminPanel() {
 
   const totalValor = filteredData.reduce((acc, curr) => acc + (curr.valor || 0), 0);
 
-  // Se não estiver autorizado, retorna vazio para evitar "piscada" de conteúdo
   if (!authorized) return <div className="min-h-screen bg-[#000b1a]" />;
 
   return (
     <main className="min-h-screen bg-[#000b1a] text-white p-4 md:p-8 relative overflow-hidden font-sans">
       
+      {/* MODAL DE FOTOS */}
+      {activePhotos && (
+        <div className="fixed inset-0 z-[100] bg-black/95 backdrop-blur-xl flex flex-col items-center justify-center p-4">
+          <button 
+            onClick={() => setActivePhotos(null)}
+            className="absolute top-8 right-8 p-3 bg-white/10 hover:bg-white/20 rounded-full transition-all text-white"
+          >
+            <X size={32} />
+          </button>
+
+          <div className="relative w-full max-w-4xl flex items-center justify-center">
+            {activePhotos.length > 1 && (
+              <>
+                <button 
+                  onClick={() => setPhotoIndex(prev => (prev === 0 ? activePhotos.length - 1 : prev - 1))}
+                  className="absolute left-0 p-4 bg-blue-600 rounded-full hover:scale-110 transition-transform z-10"
+                >
+                  <ChevronLeft size={30} />
+                </button>
+                <button 
+                  onClick={() => setPhotoIndex(prev => (prev === activePhotos.length - 1 ? 0 : prev + 1))}
+                  className="absolute right-0 p-4 bg-blue-600 rounded-full hover:scale-110 transition-transform z-10"
+                >
+                  <ChevronRight size={30} />
+                </button>
+              </>
+            )}
+            
+            <img 
+              src={activePhotos[photoIndex]} 
+              className="max-h-[70vh] rounded-2xl shadow-2xl border border-white/10 object-contain"
+              alt="Comprovante"
+            />
+          </div>
+
+          <div className="mt-8 flex flex-col items-center gap-2">
+            <p className="text-blue-400 font-black uppercase tracking-widest text-sm">
+              Foto {photoIndex + 1} de {activePhotos.length}
+            </p>
+            <div className="flex gap-2">
+              {activePhotos.map((_, idx) => (
+                <div key={idx} className={`w-3 h-3 rounded-full transition-all ${idx === photoIndex ? 'bg-blue-500 scale-125' : 'bg-white/20'}`} />
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MARCA D'AGUA DE FUNDO */}
       <div className="fixed inset-0 flex items-center justify-center pointer-events-none z-0 opacity-[0.02] select-none">
         <h1 className="text-[20vw] font-black italic tracking-tighter uppercase">RIVILOG</h1>
       </div>
@@ -158,7 +209,10 @@ export default function AdminPanel() {
         
         <div className="flex flex-col md:flex-row justify-between items-end mb-10 gap-6">
           <div className="flex items-center gap-6">
-            <button onClick={handleLogout} className="p-3 bg-red-600/10 border border-red-600/20 rounded-full hover:bg-red-600 transition-all group text-red-500 hover:text-white" title="Sair do Painel">
+            <button onClick={() => {
+              sessionStorage.removeItem('rivilog_admin_access');
+              router.replace('/');
+            }} className="p-3 bg-red-600/10 border border-red-600/20 rounded-full hover:bg-red-600 transition-all group text-red-500 hover:text-white" title="Sair do Painel">
               <Lock className="w-6 h-6 group-hover:scale-110" />
             </button>
             <RivilogLogo />
@@ -170,7 +224,7 @@ export default function AdminPanel() {
               className="flex items-center gap-2 bg-green-600 hover:bg-green-500 text-white px-6 py-3 rounded-2xl font-black italic text-sm transition-all shadow-lg shadow-green-900/20 uppercase"
             >
               <Download size={18} />
-              Exportar Planilha
+              Exportar Excel
             </button>
 
             <div className="bg-blue-600/10 border border-blue-500/20 px-6 py-3 rounded-2xl text-right">
@@ -180,6 +234,7 @@ export default function AdminPanel() {
           </div>
         </div>
 
+        {/* FILTROS */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
           <div className="bg-[#001229] border border-white/10 p-4 rounded-[24px] space-y-3">
             <label className="text-[10px] font-black text-blue-500 uppercase tracking-widest flex items-center gap-2">
@@ -205,8 +260,8 @@ export default function AdminPanel() {
                   onClick={() => setFilterOperacao(op)}
                   className={`flex-1 py-3 rounded-xl text-[10px] font-black transition-all border ${
                     filterOperacao === op 
-                    ? 'bg-blue-600 border-blue-500 text-white shadow-[0_0_15px_rgba(59,130,246,0.3)]' 
-                    : 'bg-white/5 border-white/5 text-white/40 hover:bg-white/10'
+                    ? 'bg-blue-600 border-blue-500 text-white' 
+                    : 'bg-white/5 border-white/5 text-white/40'
                   }`}
                 >
                   {op === 'IMILE SEGUNDARIA' ? 'IMILE' : op.split(' ')[0]}
@@ -217,31 +272,26 @@ export default function AdminPanel() {
 
           <div className="bg-[#001229] border border-white/10 p-4 rounded-[24px] space-y-3">
             <label className="text-[10px] font-black text-blue-500 uppercase tracking-widest flex items-center gap-2">
-              <Calendar size={14} /> Período da Viagem
+              <Calendar size={14} /> Período
             </label>
             <div className="flex items-center gap-2">
               <input 
                 type="date" 
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
-                className="flex-1 bg-white/5 border border-white/5 rounded-xl py-2 px-3 text-xs font-bold outline-none focus:border-blue-500 transition"
+                className="flex-1 bg-white/5 border border-white/5 rounded-xl py-2 px-3 text-xs font-bold outline-none"
               />
-              <span className="text-white/20">-</span>
               <input 
                 type="date" 
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
-                className="flex-1 bg-white/5 border border-white/5 rounded-xl py-2 px-3 text-xs font-bold outline-none focus:border-blue-500 transition"
+                className="flex-1 bg-white/5 border border-white/5 rounded-xl py-2 px-3 text-xs font-bold outline-none"
               />
-              {(startDate || endDate) && (
-                <button onClick={() => {setStartDate(''); setEndDate('');}} className="p-2 text-red-500 hover:bg-red-500/10 rounded-lg">
-                  <X size={16} />
-                </button>
-              )}
             </div>
           </div>
         </div>
 
+        {/* TABELA */}
         <div className="bg-[#001229]/60 backdrop-blur-xl border border-white/5 rounded-[32px] overflow-hidden shadow-2xl">
           <div className="overflow-x-auto">
             <table className="w-full text-left">
@@ -249,17 +299,17 @@ export default function AdminPanel() {
                 <tr className="bg-blue-500/5 border-b border-white/5 text-[10px] font-black uppercase text-blue-400 tracking-[0.1em]">
                   <th className="p-6 text-center"><Hash size={14}/></th>
                   <th className="p-6">Protocolo</th>
-                  <th className="p-6">Data Viagem</th>
-                  <th className="p-6">Responsável</th>
+                  <th className="p-6">Data</th>
+                  <th className="p-6">Motorista</th>
                   <th className="p-6">Placa</th>
                   <th className="p-6">Operação</th>
                   <th className="p-6 text-right">Valor</th>
-                  <th className="p-6 text-center">Arquivos / Ações</th>
+                  <th className="p-6 text-center">Arquivos</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
                 {loading ? (
-                  <tr><td colSpan={8} className="p-20 text-center animate-pulse font-black text-white/10 uppercase tracking-widest">Sincronizando dados...</td></tr>
+                  <tr><td colSpan={8} className="p-20 text-center animate-pulse font-black text-white/10 uppercase">Carregando...</td></tr>
                 ) : filteredData.map((item) => (
                   <tr key={item.id} className="hover:bg-blue-500/[0.02] transition-colors group">
                     <td className="p-6 text-center">
@@ -268,19 +318,14 @@ export default function AdminPanel() {
                     <td className="p-6">
                       <span className="font-mono text-blue-400 font-black text-sm tracking-wider">{item.protocolo || 'N/A'}</span>
                     </td>
-                    <td className="p-6">
-                      <div className="text-sm font-bold">
-                         {new Date(item.data_viagem + 'T00:00:00').toLocaleDateString('pt-BR')}
-                      </div>
+                    <td className="p-6 font-bold text-sm">
+                       {new Date(item.data_viagem + 'T00:00:00').toLocaleDateString('pt-BR')}
                     </td>
                     <td className="p-6">
                       <div className="font-black text-xs uppercase text-white/90">{item.nome_motorista}</div>
-                      <div className="text-[10px] text-white/30 font-bold mt-1 uppercase">
-                        <span>{item.telefone}</span>
-                      </div>
                     </td>
                     <td className="p-6">
-                      <span className="bg-white/5 border border-white/10 px-3 py-1.5 rounded-lg font-black text-xs tracking-tighter">
+                      <span className="bg-white/5 border border-white/10 px-3 py-1.5 rounded-lg font-black text-xs">
                         {item.placa}
                       </span>
                     </td>
@@ -291,8 +336,8 @@ export default function AdminPanel() {
                         {item.operacao || 'N/A'}
                       </span>
                     </td>
-                    <td className="p-6 text-right">
-                      <span className="text-white font-black text-sm">R$ {item.valor?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                    <td className="p-6 text-right font-black text-sm">
+                      R$ {item.valor?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                     </td>
                     <td className="p-6">
                       <div className="flex justify-center gap-2">
@@ -301,15 +346,33 @@ export default function AdminPanel() {
                             <FileText size={18} />
                           </a>
                         )}
-                        {item.url_comprovante && (
-                          <a href={item.url_comprovante} target="_blank" className="p-2.5 bg-blue-600 text-white rounded-xl hover:bg-white hover:text-black transition-all shadow-lg" title="Ver Foto Comprovante">
+
+                        {(item.urls_multiplas && item.urls_multiplas.length > 0) ? (
+                          <button 
+                            onClick={() => {
+                              setActivePhotos(item.urls_multiplas);
+                              setPhotoIndex(0);
+                            }}
+                            className="p-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-400 transition-all shadow-lg flex items-center gap-2" 
+                          >
+                            <ImageIcon size={18} />
+                            <span className="text-[10px] font-black">{item.urls_multiplas.length}</span>
+                          </button>
+                        ) : item.url_comprovante && (
+                          <button 
+                            onClick={() => {
+                              setActivePhotos([item.url_comprovante]);
+                              setPhotoIndex(0);
+                            }}
+                            className="p-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-400 transition-all shadow-lg"
+                          >
                             <Eye size={18} />
-                          </a>
+                          </button>
                         )}
+
                         <button 
                           onClick={() => handleDelete(item)}
                           className="p-2.5 bg-red-600/10 text-red-500 rounded-xl hover:bg-red-600 hover:text-white transition-all border border-red-500/10"
-                          title="Excluir Registro"
                         >
                           <Trash2 size={18} />
                         </button>
@@ -320,9 +383,6 @@ export default function AdminPanel() {
               </tbody>
             </table>
           </div>
-          {filteredData.length === 0 && !loading && (
-            <div className="p-20 text-center text-white/20 font-black uppercase italic tracking-widest">Nenhum registro encontrado</div>
-          )}
         </div>
       </div>
     </main>
