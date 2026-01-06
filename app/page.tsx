@@ -106,7 +106,7 @@ export default function Home() {
   };
 
   const handleNextStep = () => {
-    // PASSO 1: TRAVA DE 24 HORAS
+    // PASSO 1: TRAVA DE 48 HORAS
     if (step === 1) {
       if (!formData.data) {
         alert("ERRO: Selecione a data da viagem.");
@@ -116,8 +116,12 @@ export default function Home() {
       const hoje = new Date();
       hoje.setHours(0, 0, 0, 0);
 
-      if (dataSelecionada < hoje) {
-        alert("BLOQUEADO: Não são aceitos comprovantes de dias anteriores.");
+      const dataLimite = new Date();
+      dataLimite.setHours(0, 0, 0, 0);
+      dataLimite.setDate(hoje.getDate() - 2);
+
+      if (dataSelecionada < dataLimite) {
+        alert("BLOQUEADO: Só são aceitos comprovantes de hoje ou de até 2 dias anteriores.");
         return;
       }
     }
@@ -319,9 +323,9 @@ export default function Home() {
             <div className="animate-in fade-in zoom-in-95 duration-700">
               
               <div className="mb-10 relative group">
-                <div className="absolute -inset-1 bg-gradient-to-r from-red-600 to-orange-600 rounded-3xl blur opacity-25 group-hover:opacity-50 transition duration-1000 group-hover:duration-200"></div>
+                <div className="absolute -inset-1 bg-linear-to-r from-red-600 to-orange-600 rounded-3xl blur opacity-25 group-hover:opacity-50 transition duration-1000 group-hover:duration-200"></div>
                 <div className="relative bg-[#0a0505] border-2 border-red-600/50 rounded-3xl p-6 flex items-center justify-center gap-6 overflow-hidden">
-                  <div className="flex-shrink-0 bg-red-600 p-4 rounded-2xl animate-pulse">
+                  <div className="shrink-0 bg-red-600 p-4 rounded-2xl animate-pulse">
                     <ShieldAlert size={40} className="text-white" />
                   </div>
                   <div className="flex flex-col">
@@ -335,7 +339,7 @@ export default function Home() {
               </div>
 
               <div className="grid md:grid-cols-2 gap-8 mb-12">
-                <div className="bg-white/[0.03] backdrop-blur-md border border-white/10 p-8 rounded-[40px] hover:bg-white/[0.05] transition-colors">
+                <div className="bg-white/3 backdrop-blur-md border border-white/10 p-8 rounded-[40px] hover:bg-white/5 transition-colors">
                   <div className="flex items-center gap-4 mb-8">
                     <div className="bg-blue-600/20 p-3 rounded-2xl">
                       <FileText className="text-blue-500" size={28} />
@@ -349,7 +353,7 @@ export default function Home() {
                       { icon: <FileUp size={18}/>, text: "Placa no Padrão Mercosul (7 caracteres)" },
                       { icon: <CheckCircle2 size={18}/>, text: "Comprovantes 100% Legíveis" }
                     ].map((item, i) => (
-                      <div key={i} className="flex items-center gap-4 p-4 bg-white/[0.02] rounded-2xl border border-white/5">
+                      <div key={i} className="flex items-center gap-4 p-4 bg-white/2ded-2xl border border-white/5">
                         <span className="text-blue-500">{item.icon}</span>
                         <span className="text-sm font-bold uppercase tracking-tight text-gray-300">{item.text}</span>
                       </div>
@@ -357,7 +361,7 @@ export default function Home() {
                   </div>
                 </div>
 
-                <div className="bg-white/[0.03] backdrop-blur-md border border-white/10 p-8 rounded-[40px] hover:bg-white/[0.05] transition-colors">
+                <div className="bg-white/3 backdrop-blur-md border border-white/10 p-8 rounded-[40px] hover:bg-white/5 transition-colors">
                   <div className="flex items-center gap-4 mb-8">
                     <div className="bg-blue-600/20 p-3 rounded-2xl">
                       <Wallet className="text-blue-500" size={28} />
@@ -366,7 +370,7 @@ export default function Home() {
                   </div>
 
                   <div className="space-y-4">
-                    <div className="group relative bg-gradient-to-r from-blue-600/20 to-transparent p-6 rounded-3xl border border-blue-500/20">
+                    <div className="group relative bg-linear-to-r from-blue-600/20 to-transparent p-6 rounded-3xl border border-blue-500/20">
                       <div className="flex justify-between items-center">
                         <div>
                           <p className="text-[10px] font-black text-blue-400 uppercase tracking-[0.2em] mb-1">Primeiro Ciclo</p>
@@ -379,7 +383,7 @@ export default function Home() {
                       </div>
                     </div>
 
-                    <div className="group relative bg-white/[0.02] p-6 rounded-3xl border border-white/5">
+                    <div className="group relative bg-white/2 p-6 rounded-3xl border border-white/5">
                       <div className="flex justify-between items-center">
                         <div>
                           <p className="text-[10px] font-black text-gray-500 uppercase tracking-[0.2em] mb-1">Segundo Ciclo</p>
@@ -515,7 +519,7 @@ export default function Home() {
                 {step === 5 && (
                   <div className="space-y-6">
                     <div className="w-full overflow-hidden rounded-md border-2 border-white/10 bg-white/5 shadow-lg">
-                      <img src="./comprovantes.jpeg" alt="Exemplo de Comprovante" className="w-full h-auto max-h-[300px] object-contain block mx-auto p-2" />
+                      <img src="./comprovantes.jpeg" alt="Exemplo de Comprovante" className="w-full h-auto max-h-75 object-contain block mx-auto p-2" />
                     </div>
                     <span className="text-red-600 font-black text-6xl opacity-20 italic">05</span>
                     <h2 className="text-4xl font-black italic uppercase leading-tight">FOTOS DOS COMPROVANTES</h2>
@@ -556,7 +560,7 @@ export default function Home() {
                 {step === 6 && (
                   <div className="space-y-6">
                     <div className="w-full overflow-hidden rounded-md border-2 border-white/10 bg-white/5 shadow-lg">
-                      <img src="./extrato.jpeg" alt="Exemplo de Extrato" className="w-full h-auto max-h-[300px] object-contain block mx-auto p-2" />
+                      <img src="./extrato.jpeg" alt="Exemplo de Extrato" className="w-full h-auto max-h-75 object-contain block mx-auto p-2" />
                     </div>
                     <span className="text-red-600 font-black text-6xl opacity-20 italic">06</span>
                     <h2 className="text-4xl font-black italic uppercase leading-tight">ANEXAR EXTRATO EM PDF</h2>
