@@ -4,8 +4,10 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
 import * as XLSX from 'xlsx'; 
+import JSZip from 'jszip'; // Importação do ZIP
+import { saveAs } from 'file-saver'; // Importação para salvar o arquivo
 import { 
-  FileText, Calendar, Phone, Mail, Eye, ArrowLeft, Search, Trash2, Filter, X, Hash, Download, Lock, Image as ImageIcon, ChevronLeft, ChevronRight
+  FileText, Calendar, Phone, Mail, Eye, ArrowLeft, Search, Trash2, Filter, X, Hash, Download, Lock, Image as ImageIcon, ChevronLeft, ChevronRight, Archive
 } from 'lucide-react';
 
 const RivilogLogo = ({ className = "w-48 h-16" }) => (
@@ -62,6 +64,73 @@ export default function AdminPanel() {
       setLoading(false);
     }
   }
+
+  // --- NOVA FUNÇÃO DE BACKUP (ZIP) ---
+  const handleFullBackup = async () => {
+    if (filteredData.length === 0) {
+      alert("Nenhum dado para baixar.");
+      return;
+    }
+
+    const confirm = window.confirm(`Deseja baixar todos os arquivos de ${filteredData.length} registros?\nOs arquivos serão organizados em pastas por DATA e MOTORISTA.`);
+    if (!confirm) return;
+
+    setLoading(true);
+    const zip = new JSZip();
+
+    try {
+      // Loop por cada item filtrado na tabela
+      for (const item of filteredData) {
+        // Formata data e nome para criar as pastas
+        const dataViagem = new Date(item.data_viagem + 'T00:00:00').toLocaleDateString('pt-BR').replace(/\//g, '-');
+        const nomeMotorista = (item.nome_motorista || 'SEM_NOME').toUpperCase().replace(/[^A-Z0-9 ]/g, "");
+        const protocolo = item.protocolo || 'S-PROT';
+
+        // Cria estrutura: DATA -> MOTORISTA -> ARQUIVOS
+        const folder = zip.folder(dataViagem)?.folder(`${nomeMotorista} - ${protocolo}`);
+
+        // Função auxiliar para adicionar arquivo ao ZIP
+        const addFileToZip = async (url: string, filename: string) => {
+          try {
+            const response = await fetch(url);
+            const blob = await response.blob();
+            folder?.file(filename, blob);
+          } catch (e) {
+            console.error(`Erro baixar ${url}`, e);
+            folder?.file(`${filename}_ERRO.txt`, "Falha no download");
+          }
+        };
+
+        // Adiciona Comprovantes (Multiplos ou Unico)
+        if (item.urls_multiplas && item.urls_multiplas.length > 0) {
+          for (let i = 0; i < item.urls_multiplas.length; i++) {
+            // Tenta adivinhar extensão ou usa jpg
+            const ext = item.urls_multiplas[i].toLowerCase().includes('.pdf') ? 'pdf' : 'jpg';
+            await addFileToZip(item.urls_multiplas[i], `comprovante_${i + 1}.${ext}`);
+          }
+        } else if (item.url_comprovante) {
+          const ext = item.url_comprovante.toLowerCase().includes('.pdf') ? 'pdf' : 'jpg';
+          await addFileToZip(item.url_comprovante, `comprovante.${ext}`);
+        }
+
+        // Adiciona Extrato Tag
+        if (item.url_extrato) {
+          await addFileToZip(item.url_extrato, `extrato_tag.pdf`);
+        }
+      }
+
+      // Gera o arquivo ZIP final
+      const content = await zip.generateAsync({ type: "blob" });
+      saveAs(content, `BACKUP_RIVILOG_${new Date().toLocaleDateString('pt-BR').replace(/\//g, '-')}.zip`);
+
+    } catch (err) {
+      console.error(err);
+      alert("Erro ao gerar o arquivo ZIP.");
+    } finally {
+      setLoading(false);
+    }
+  };
+  // -----------------------------------
 
   const handleExportExcel = () => {
     if (filteredData.length === 0) {
@@ -154,7 +223,7 @@ export default function AdminPanel() {
       
       {/* MODAL DE FOTOS */}
       {activePhotos && (
-        <div className="fixed inset-0 z-[100] bg-black/95 backdrop-blur-xl flex flex-col items-center justify-center p-4">
+        <div className="fixed inset-0 z-100 bg-black/95 backdrop-blur-xl flex flex-col items-center justify-center p-4">
           <button 
             onClick={() => setActivePhotos(null)}
             className="absolute top-8 right-8 p-3 bg-white/10 hover:bg-white/20 rounded-full transition-all text-white"
@@ -219,6 +288,16 @@ export default function AdminPanel() {
           </div>
 
           <div className="flex items-center gap-4">
+            
+            {/* BOTÃO NOVO: BAIXAR TUDO */}
+            <button 
+              onClick={handleFullBackup}
+              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-2xl font-black italic text-sm transition-all shadow-lg uppercase"
+            >
+              <Archive size={18} />
+              Baixar Tudo
+            </button>
+
             <button 
               onClick={handleExportExcel}
               className="flex items-center gap-2 bg-green-600 hover:bg-green-500 text-white px-6 py-3 rounded-2xl font-black italic text-sm transition-all shadow-lg shadow-green-900/20 uppercase"
@@ -236,7 +315,7 @@ export default function AdminPanel() {
 
         {/* FILTROS */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-          <div className="bg-[#001229] border border-white/10 p-4 rounded-[24px] space-y-3">
+          <div className="bg-[#001229] border border-white/10 p-4 rounded-3xl space-y-3">
             <label className="text-[10px] font-black text-blue-500 uppercase tracking-widest flex items-center gap-2">
               <Search size={14} /> Pesquisar
             </label>
@@ -249,7 +328,7 @@ export default function AdminPanel() {
             />
           </div>
 
-          <div className="bg-[#001229] border border-white/10 p-4 rounded-[24px] space-y-3">
+          <div className="bg-[#001229] border border-white/10 p-4 rounded-3xl space-y-3">
             <label className="text-[10px] font-black text-blue-500 uppercase tracking-widest flex items-center gap-2">
               <Filter size={14} /> Operação
             </label>
@@ -270,7 +349,7 @@ export default function AdminPanel() {
             </div>
           </div>
 
-          <div className="bg-[#001229] border border-white/10 p-4 rounded-[24px] space-y-3">
+          <div className="bg-[#001229] border border-white/10 p-4 rounded-3xl space-y-3">
             <label className="text-[10px] font-black text-blue-500 uppercase tracking-widest flex items-center gap-2">
               <Calendar size={14} /> Período
             </label>
@@ -292,11 +371,11 @@ export default function AdminPanel() {
         </div>
 
         {/* TABELA */}
-        <div className="bg-[#001229]/60 backdrop-blur-xl border border-white/5 rounded-[32px] overflow-hidden shadow-2xl">
+        <div className="bg-[#001229]/60 backdrop-blur-xl border border-white/5 rounded-4xl overflow-hidden shadow-2xl">
           <div className="overflow-x-auto">
             <table className="w-full text-left">
               <thead>
-                <tr className="bg-blue-500/5 border-b border-white/5 text-[10px] font-black uppercase text-blue-400 tracking-[0.1em]">
+                <tr className="bg-blue-500/5 border-b border-white/5 text-[10px] font-black uppercase text-blue-400 tracking-widest">
                   <th className="p-6 text-center"><Hash size={14}/></th>
                   <th className="p-6">Protocolo</th>
                   <th className="p-6">Data</th>
@@ -311,7 +390,7 @@ export default function AdminPanel() {
                 {loading ? (
                   <tr><td colSpan={8} className="p-20 text-center animate-pulse font-black text-white/10 uppercase">Carregando...</td></tr>
                 ) : filteredData.map((item) => (
-                  <tr key={item.id} className="hover:bg-blue-500/[0.02] transition-colors group">
+                  <tr key={item.id} className="hover:bg-blue-500/2 transition-colors group">
                     <td className="p-6 text-center">
                         <div className="w-2 h-2 rounded-full bg-blue-500 mx-auto group-hover:scale-125 transition-transform"></div>
                     </td>
